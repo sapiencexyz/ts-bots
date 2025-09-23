@@ -101,14 +101,16 @@ export class MarketLPAgent {
         `📐 Market ${m.marketId}: ticks ${lowerTick}..${upperTick} around target ${targetPrice}`
       );
 
-      console.log('🧪 [DRY-RUN] Would create LP position with params:', {
-        sapienceAddress,
-        marketId: m.marketId,
+      const position = await lpManager.createLPPosition(
+        marketIdBig,
         lowerTick,
         upperTick,
         targetPrice,
-        collateralAmount: this.loomConfig.lpManagement.defaultCollateralAmount,
-      });
+        this.loomConfig.lpManagement.defaultCollateralAmount
+      );
+      console.log(
+        `✅ Created LP position ${position.id} for market ${m.marketId}`
+      );
     }
   }
 }
