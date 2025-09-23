@@ -1,0 +1,41 @@
+{
+  "name": "ts-bots",
+  "version": "1.0.0",
+  "description": "A TypeScript monorepo for building multiple bots with shared utilities",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "dev": "npm run dev --workspaces",
+    "test": "npm run test --workspaces",
+    "lint": "npm run lint --workspaces",
+    "format": "prettier --write \"packages/**/*.{ts,js,json}\"",
+    "type-check": "npm run type-check --workspaces",
+    "loom:build": "npm run build --workspace=packages/loom",
+    "loom:dev": "npm run dev --workspace=packages/loom",
+    "loom:start": "npm run start --workspace=packages/loom",
+    "loom:start:dev": "npm run start:dev --workspace=packages/loom",
+    "loom": "npm run loom:start:dev"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "prettier": "^3.0.0",
+    "eslint": "^8.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "jest": "^29.0.0",
+    "@types/jest": "^29.0.0",
+    "ts-jest": "^29.0.0"
+  },
+  "keywords": [
+    "bots",
+    "typescript",
+    "monorepo",
+    "automation"
+  ],
+  "author": "",
+  "license": "MIT"
+}

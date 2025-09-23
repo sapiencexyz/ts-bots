@@ -1,0 +1,33 @@
+{
+  "name": "@ts-bots/loom",
+  "version": "1.0.0",
+  "description": "Loom bot for ts-bots monorepo",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "start:dev": "tsx src/index.ts",
+    "lint": "eslint src/**/*.ts",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ts-bots/shared": "file:../shared",
+    "ethers": "^6.0.0",
+    "viem": "^2.0.0",
+    "axios": "^1.6.0",
+    "dotenv": "^16.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "tsx": "^4.0.0"
+  },
+  "keywords": [
+    "bot",
+    "loom",
+    "automation"
+  ],
+  "license": "MIT"
+}
