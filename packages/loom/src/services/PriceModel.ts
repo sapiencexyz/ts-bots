@@ -29,9 +29,11 @@ export class PriceModel {
     try {
       const tickSpacing = 200;
 
+      // Interpret concentrationRange as FULL width: [target - range/2, target + range/2]
+      const epsilon = 1e-6; // avoid log(0)
       const halfRange = concentrationRange / 2;
-      const lowerPrice = targetPrice * (1 - halfRange);
-      const upperPrice = targetPrice * (1 + halfRange);
+      const lowerPrice = Math.max(epsilon, targetPrice - halfRange);
+      const upperPrice = Math.min(1 - epsilon, targetPrice + halfRange);
 
       const rawLowerTick = Math.log(lowerPrice) / Math.log(1.0001);
       const rawUpperTick = Math.log(upperPrice) / Math.log(1.0001);

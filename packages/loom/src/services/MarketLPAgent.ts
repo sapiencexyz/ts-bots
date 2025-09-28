@@ -10,6 +10,7 @@ import { LPManager } from './LPManager';
 import { PriceModel } from './PriceModel';
 
 export class MarketLPAgent {
+  private lastRunCutoff?: string;
   constructor(private loomConfig: LoomConfig) {}
 
   async runOnce(): Promise<void> {
@@ -20,7 +21,11 @@ export class MarketLPAgent {
     const model = new PriceModel();
 
     console.log('🔎 Fetching active markets from Sapience API...');
-    const variables = { where: { settled: { equals: false } } } as any;
+    const where: any = { settled: { equals: false } };
+    if (this.lastRunCutoff) {
+      where.createdAt = { gt: this.lastRunCutoff };
+    }
+    const variables = { where } as any;
     const { markets } = await gql.query<MarketsQueryResult>(
       MARKETS_QUERY,
       variables
@@ -62,6 +67,31 @@ export class MarketLPAgent {
         continue;
       }
 
+      // Stop when collateral is insufficient
+      const collateralAddress = m.marketGroup?.collateralAsset;
+      if (!collateralAddress) {
+        console.log(
+          `⚠️  Market ${m.marketId}: missing collateralAsset, skipping.`
+        );
+        continue;
+      }
+      const required = BigInt(
+        this.loomConfig.lpManagement.defaultCollateralAmount
+      );
+      try {
+        const balance = await lpManager.getCollateralBalance(collateralAddress);
+        if (balance < required) {
+          console.log(
+            `💸 Insufficient collateral (${balance.toString()} wei) for required ${required.toString()} wei. Stopping further creations this run.`
+          );
+          break;
+        }
+      } catch (e) {
+        console.log(
+          `⚠️  Could not fetch collateral balance, attempting anyway...`
+        );
+      }
+
       const question = m.marketGroup?.question || '';
       const claimYes = m.claimStatementYesOrNumeric || undefined;
       const claimNo = m.claimStatementNo || undefined;
@@ -101,6 +131,11 @@ export class MarketLPAgent {
         `📐 Market ${m.marketId}: ticks ${lowerTick}..${upperTick} around target ${targetPrice}`
       );
 
+      if (process.env.DRY_RUN === 'true') {
+        console.log('🧪 DRY RUN enabled: skipping createLPPosition call.');
+        continue;
+      }
+
       const position = await lpManager.createLPPosition(
         marketIdBig,
         lowerTick,
@@ -112,5 +147,8 @@ export class MarketLPAgent {
         `✅ Created LP position ${position.id} for market ${m.marketId}`
       );
     }
+
+    // After the run, record cutoff for subsequent runs
+    this.lastRunCutoff = new Date().toISOString();
   }
 }

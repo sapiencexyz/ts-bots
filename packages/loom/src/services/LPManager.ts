@@ -128,6 +128,16 @@ export class LPManager extends EventEmitter {
     }
   }
 
+  async getCollateralBalance(collateralAddress: string): Promise<bigint> {
+    const token = new ethers.Contract(
+      collateralAddress,
+      ERC20_ABI,
+      this.provider
+    );
+    const bal = await token.balanceOf(this.wallet.address);
+    return typeof bal === 'bigint' ? bal : BigInt(bal.toString());
+  }
+
   async createLPPosition(
     marketId: bigint,
     lowerTick: number,
@@ -373,9 +383,11 @@ export class LPManager extends EventEmitter {
       ] = positionData;
 
       // Check if position is LP kind (1) and not settled
-      if (kind !== 1 || isSettled) {
+      const kindNum =
+        typeof kind === 'bigint' ? Number(kind) : (kind as number);
+      if (kindNum !== 1 || isSettled) {
         console.log(
-          `Position ${position.tokenId} is not an active LP position (kind: ${kind}, settled: ${isSettled})`
+          `Position ${position.tokenId} is not an active LP position (kind: ${kindNum}, settled: ${isSettled})`
         );
         return;
       }
@@ -455,9 +467,14 @@ export class LPManager extends EventEmitter {
 
         console.log(`📋 [LPManager] Position ${tokenId.toString()} details:`);
         console.log(`   • ID: ${id.toString()}`);
-        console.log(`   • Kind: ${kind} (1=LP, 2=Trader)`);
-        console.log(`   • Market ID: ${positionMarketId.toString()}`);
-        console.log(`   • Target Market ID: ${marketId.toString()}`);
+        const kindNum =
+          typeof kind === 'bigint' ? Number(kind) : (kind as number);
+        console.log(`   • Kind: ${kindNum} (1=LP, 2=Trader)`);
+        const positionMarketIdStr = positionMarketId.toString();
+        const targetMarketIdStr = marketId.toString();
+        const sameMarket = positionMarketIdStr === targetMarketIdStr;
+        console.log(`   • Market ID: ${positionMarketIdStr}`);
+        console.log(`   • Target Market ID: ${targetMarketIdStr}`);
         console.log(
           `   • Deposited Collateral: ${depositedCollateralAmount.toString()}`
         );
@@ -466,7 +483,7 @@ export class LPManager extends EventEmitter {
         console.log(`   • vBase Amount: ${vBaseAmount.toString()}`);
 
         // Check if this is an active LP position for the specified market
-        if (kind === 1 && !isSettled && positionMarketId === marketId) {
+        if (kindNum === 1 && !isSettled && sameMarket) {
           console.log(`✅ [LPManager] Found matching active LP position!`);
 
           // This is our active LP position for this market
@@ -494,12 +511,12 @@ export class LPManager extends EventEmitter {
           console.log(
             `⏭️  [LPManager] Position ${tokenId.toString()} doesn't match criteria:`
           );
-          if (kind !== 1)
-            console.log(`     - Wrong kind: ${kind} (expected 1 for LP)`);
+          if (kindNum !== 1)
+            console.log(`     - Wrong kind: ${kindNum} (expected 1 for LP)`);
           if (isSettled) console.log(`     - Position is settled`);
-          if (positionMarketId !== marketId)
+          if (!sameMarket)
             console.log(
-              `     - Wrong market: ${positionMarketId.toString()} (expected ${marketId.toString()})`
+              `     - Wrong market: ${positionMarketIdStr} (expected ${targetMarketIdStr})`
             );
         }
       }
@@ -545,10 +562,11 @@ export class LPManager extends EventEmitter {
   }
 
   calculatePriceRange(targetPrice: number): PriceRange {
+    const epsilon = 1e-6;
     const halfRange = this.config.lpManagement.concentrationRange / 2;
     return {
-      lower: targetPrice * (1 - halfRange),
-      upper: targetPrice * (1 + halfRange),
+      lower: Math.max(epsilon, targetPrice - halfRange),
+      upper: Math.min(1 - epsilon, targetPrice + halfRange),
       center: targetPrice,
     };
   }
