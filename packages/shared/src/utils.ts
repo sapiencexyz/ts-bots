@@ -67,14 +67,48 @@ export function retry<T>(
 }
 
 export function createLogger(botName: string) {
+  type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
+
+  const levelOrder: Record<LogLevel, number> = {
+    debug: 10,
+    info: 20,
+    warn: 30,
+    error: 40,
+    silent: 100,
+  };
+
+  const envLevel = (process.env.LOG_LEVEL || '').toLowerCase() as LogLevel;
+  const defaultLevel: LogLevel =
+    envLevel && envLevel in levelOrder
+      ? envLevel
+      : process.env.NODE_ENV === 'production'
+        ? 'info'
+        : 'debug';
+
+  let currentLevel: LogLevel = defaultLevel;
+
+  const shouldLog = (level: LogLevel) =>
+    levelOrder[level] >= levelOrder[currentLevel];
+
+  const format = (level: string, message: string) =>
+    `[${botName}] ${level.toUpperCase()}: ${message}`;
+
   return {
-    info: (message: string, ...args: any[]) =>
-      console.log(`[${botName}] INFO: ${message}`, ...args),
-    warn: (message: string, ...args: any[]) =>
-      console.warn(`[${botName}] WARN: ${message}`, ...args),
-    error: (message: string, ...args: any[]) =>
-      console.error(`[${botName}] ERROR: ${message}`, ...args),
-    debug: (message: string, ...args: any[]) =>
-      console.debug(`[${botName}] DEBUG: ${message}`, ...args),
+    info: (message: string, ...args: any[]) => {
+      if (shouldLog('info')) console.log(format('info', message), ...args);
+    },
+    warn: (message: string, ...args: any[]) => {
+      if (shouldLog('warn')) console.warn(format('warn', message), ...args);
+    },
+    error: (message: string, ...args: any[]) => {
+      if (shouldLog('error')) console.error(format('error', message), ...args);
+    },
+    debug: (message: string, ...args: any[]) => {
+      if (shouldLog('debug')) console.debug(format('debug', message), ...args);
+    },
+    setLevel: (level: LogLevel) => {
+      if (level in levelOrder) currentLevel = level;
+    },
+    getLevel: (): LogLevel => currentLevel,
   };
 }
