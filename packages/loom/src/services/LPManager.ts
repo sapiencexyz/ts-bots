@@ -1,3 +1,4 @@
+import { createLogger } from '@ts-bots/shared';
 import { ethers } from 'ethers';
 import { EventEmitter } from 'events';
 import { ERC20_ABI, SAPIENCE_ABI } from '../abis/placeholders';
@@ -9,6 +10,7 @@ export class LPManager extends EventEmitter {
   private wallet: ethers.Wallet;
   private sapience: ethers.Contract;
   private collateralTokenSymbol: string = 'TOKEN'; // Cache for token symbol
+  private logger = createLogger('Loom');
 
   constructor(config: LoomConfig, sapienceContractAddress: string) {
     super();
@@ -42,11 +44,11 @@ export class LPManager extends EventEmitter {
       );
       const symbol = await tokenContract.symbol();
       this.collateralTokenSymbol = symbol;
-      console.log(`💰 [LPManager] Collateral token symbol: ${symbol}`);
+      this.logger.debug(`Collateral token symbol: ${symbol}`);
       return symbol;
     } catch (error) {
-      console.warn(
-        `⚠️ [LPManager] Could not fetch token symbol for ${collateralAddress}, using 'TOKEN'`
+      this.logger.warn(
+        `Could not fetch token symbol for ${collateralAddress}, using 'TOKEN'`
       );
       return 'TOKEN';
     }
@@ -54,16 +56,14 @@ export class LPManager extends EventEmitter {
 
   async getMarketData(marketId: bigint): Promise<MarketData> {
     try {
-      console.log(
-        `🔍 [LPManager] Fetching market data for marketId: ${marketId}`
-      );
-      console.log(`📞 [LPManager] Calling sapience.getMarket(${marketId})`);
+      this.logger.debug(`Fetching market data for marketId: ${marketId}`);
+      this.logger.debug(`Calling sapience.getMarket(${marketId})`);
 
       // Get market data from Sapience contract
       const [marketData] = await this.sapience.getMarket(marketId);
 
-      console.log(`✅ [LPManager] Market data retrieved successfully`);
-      console.log(`📊 [LPManager] Market details:`, {
+      this.logger.debug(`Market data retrieved successfully`);
+      this.logger.debug(`Market details:`, {
         marketId: marketData.marketId.toString(),
         startTime: new Date(Number(marketData.startTime) * 1000).toISOString(),
         endTime: new Date(Number(marketData.endTime) * 1000).toISOString(),
@@ -76,23 +76,21 @@ export class LPManager extends EventEmitter {
       });
 
       // Get collateral address from market group
-      console.log(`📞 [LPManager] Calling sapience.getMarketGroup()`);
+      this.logger.debug(`Calling sapience.getMarketGroup()`);
       const { collateralAsset: collateralAddress } =
         await this.sapience.getMarketGroup();
-      console.log(
-        `💰 [LPManager] Market group collateral address: ${collateralAddress}`
+      this.logger.debug(
+        `Market group collateral address: ${collateralAddress}`
       );
 
       // Get current sqrtPrice from the market's pool
-      console.log(
-        `📞 [LPManager] Calling sapience.getSqrtPriceX96(${marketId})`
-      );
+      this.logger.debug(`Calling sapience.getSqrtPriceX96(${marketId})`);
       const currentSqrtPriceX96 = await this.sapience.getSqrtPriceX96(marketId);
 
       // Convert sqrtPriceX96 to readable price for logging
       const readablePrice = this.sqrtPriceToPrice(currentSqrtPriceX96);
-      console.log(
-        `💰 [LPManager] Current market price: ${readablePrice.toFixed(6)} (sqrtPriceX96: ${currentSqrtPriceX96.toString()})`
+      this.logger.info(
+        `Market ${marketId}: price=${readablePrice.toFixed(6)} (sqrtPriceX96=${currentSqrtPriceX96.toString()})`
       );
 
       const marketDataResult = {
@@ -115,13 +113,13 @@ export class LPManager extends EventEmitter {
         collateralAddress,
       };
 
-      console.log(
-        `✅ [LPManager] Market data compilation complete with collateral: ${collateralAddress}`
+      this.logger.debug(
+        `Market data compilation complete with collateral: ${collateralAddress}`
       );
       return marketDataResult;
     } catch (error) {
-      console.error(
-        `❌ [LPManager] Error getting market data for marketId ${marketId}:`,
+      this.logger.error(
+        `Error getting market data for marketId ${marketId}:`,
         error
       );
       throw error;
@@ -146,25 +144,23 @@ export class LPManager extends EventEmitter {
     collateralAmount: string
   ): Promise<LPPosition> {
     try {
-      console.log(`🚀 [LPManager] ===== CREATING LP POSITION =====`);
-      console.log(`📊 [LPManager] Parameters:`);
-      console.log(`   • MarketId: ${marketId}`);
-      console.log(`   • Initial Tick Range: ${lowerTick} to ${upperTick}`);
-      console.log(`   • Target Price: ${targetPrice}`);
-      console.log(`   • Collateral Amount: ${collateralAmount} wei`);
+      this.logger.info(`Creating LP position for market ${marketId}`);
+      this.logger.debug(
+        `Params: ticks ${lowerTick}-${upperTick}, targetPrice ${targetPrice}, collateral ${collateralAmount} wei`
+      );
 
-      console.log(`🔍 [LPManager] Step 1: Getting market data...`);
+      this.logger.debug(`Step 1: Getting market data...`);
       const marketData = await this.getMarketData(marketId);
 
       // Get token symbol for better logging
       const tokenSymbol = await this.getCollateralTokenSymbol(
         marketData.collateralAddress
       );
-      console.log(
-        `   • Collateral Amount (${tokenSymbol}): ${this.weiToEth(collateralAmount)}`
+      this.logger.debug(
+        `Collateral Amount (${tokenSymbol}): ${this.weiToEth(collateralAmount)}`
       );
 
-      console.log(`🔒 [LPManager] Step 2: Clamping ticks to market bounds...`);
+      this.logger.debug(`Step 2: Clamping ticks to market bounds...`);
       const originalLowerTick = lowerTick;
       const originalUpperTick = upperTick;
 
@@ -181,46 +177,26 @@ export class LPManager extends EventEmitter {
       const clampedLowerTick = Math.max(lowerTick, minTick);
       const clampedUpperTick = Math.min(upperTick, maxTick);
 
-      console.log(`📐 [LPManager] Tick clamping results:`);
-      console.log(
-        `   • Original: ${originalLowerTick} to ${originalUpperTick}`
+      this.logger.debug(
+        `Tick clamping: original ${originalLowerTick}-${originalUpperTick}, bounds ${marketData.baseAssetMinPriceTick}-${marketData.baseAssetMaxPriceTick}, clamped ${clampedLowerTick}-${clampedUpperTick}`
       );
-      console.log(
-        `   • Market bounds: ${marketData.baseAssetMinPriceTick} to ${marketData.baseAssetMaxPriceTick}`
-      );
-      console.log(`   • Clamped: ${clampedLowerTick} to ${clampedUpperTick}`);
 
       if (
         originalLowerTick !== clampedLowerTick ||
         originalUpperTick !== clampedUpperTick
       ) {
-        console.log(`⚠️  [LPManager] Ticks were clamped to fit market bounds!`);
+        this.logger.warn(`Ticks were clamped to fit market bounds`);
       }
 
-      console.log(`💱 [LPManager] Step 3: Converting ticks to sqrt prices...`);
+      this.logger.debug(`Step 3: Converting ticks to sqrt prices...`);
       const lowerSqrtPriceX96 = this.tickToSqrtPriceX96(clampedLowerTick);
       const upperSqrtPriceX96 = this.tickToSqrtPriceX96(clampedUpperTick);
 
-      console.log(`🔢 [LPManager] Sqrt price calculations:`);
-      console.log(
-        `   • Lower tick ${clampedLowerTick} → sqrtPriceX96: ${lowerSqrtPriceX96.toString()}`
-      );
-      console.log(
-        `   • Upper tick ${clampedUpperTick} → sqrtPriceX96: ${upperSqrtPriceX96.toString()}`
-      );
-      console.log(
-        `   • Current market sqrtPriceX96: ${marketData.currentSqrtPriceX96.toString()}`
+      this.logger.debug(
+        `Sqrt prices: lower ${lowerSqrtPriceX96.toString()}, upper ${upperSqrtPriceX96.toString()}, current ${marketData.currentSqrtPriceX96.toString()}`
       );
 
-      console.log(`📞 [LPManager] Step 4: Getting liquidity quote...`);
-      console.log(`🔍 [LPManager] Calling quoteLiquidityPositionTokens with:`);
-      console.log(`   • marketId: ${marketId}`);
-      console.log(`   • collateralAmount: ${collateralAmount}`);
-      console.log(
-        `   • currentSqrtPriceX96: ${marketData.currentSqrtPriceX96.toString()}`
-      );
-      console.log(`   • lowerSqrtPriceX96: ${lowerSqrtPriceX96.toString()}`);
-      console.log(`   • upperSqrtPriceX96: ${upperSqrtPriceX96.toString()}`);
+      this.logger.debug(`Step 4: Getting liquidity quote...`);
 
       // Use quoteLiquidityPositionTokens to calculate token amounts
       const { amount0, amount1, liquidity } =
@@ -232,27 +208,18 @@ export class LPManager extends EventEmitter {
           upperSqrtPriceX96
         );
 
-      console.log(`✅ [LPManager] Liquidity quote received:`);
-      console.log(
-        `   • Base token amount (amount0): ${amount0.toString()} wei (${this.weiToEth(amount0.toString())} ${tokenSymbol})`
+      this.logger.info(
+        `Quote: amount0=${amount0.toString()} wei, amount1=${amount1.toString()} wei, liquidity=${liquidity.toString()}`
       );
-      console.log(
-        `   • Quote token amount (amount1): ${amount1.toString()} wei (${this.weiToEth(amount1.toString())} ${tokenSymbol})`
-      );
-      console.log(`   • Liquidity: ${liquidity.toString()}`);
 
-      console.log(
-        `🔐 [LPManager] Step 5: Checking collateral token approval...`
-      );
+      this.logger.debug(`Step 5: Checking collateral token approval...`);
       // Ensure collateral token approval for liquidity creation
       await this.ensureCollateralApproval(
         collateralAmount,
         marketData.collateralAddress
       );
 
-      console.log(
-        `📋 [LPManager] Step 6: Preparing liquidity position parameters...`
-      );
+      this.logger.debug(`Step 6: Preparing liquidity position parameters...`);
       const deadline = Math.floor(Date.now() / 1000) + 3600;
 
       // Create liquidity position parameters
@@ -268,43 +235,24 @@ export class LPManager extends EventEmitter {
         deadline,
       };
 
-      console.log(`📝 [LPManager] Final liquidity parameters:`);
-      console.log(`   • marketId: ${liquidityParams.marketId}`);
-      console.log(
-        `   • amountBaseToken: ${liquidityParams.amountBaseToken.toString()}`
+      this.logger.debug(
+        `Final params: marketId=${liquidityParams.marketId}, amount0=${liquidityParams.amountBaseToken.toString()}, amount1=${liquidityParams.amountQuoteToken.toString()}, lower=${liquidityParams.lowerTick}, upper=${liquidityParams.upperTick}, deadline=${new Date(deadline * 1000).toISOString()}`
       );
-      console.log(
-        `   • amountQuoteToken: ${liquidityParams.amountQuoteToken.toString()}`
-      );
-      console.log(`   • collateralAmount: ${liquidityParams.collateralAmount}`);
-      console.log(`   • lowerTick: ${liquidityParams.lowerTick}`);
-      console.log(`   • upperTick: ${liquidityParams.upperTick}`);
-      console.log(
-        `   • minAmountBaseToken: ${liquidityParams.minAmountBaseToken}`
-      );
-      console.log(
-        `   • minAmountQuoteToken: ${liquidityParams.minAmountQuoteToken}`
-      );
-      console.log(`   • deadline: ${new Date(deadline * 1000).toISOString()}`);
 
-      console.log(
-        `🔗 [LPManager] Step 7: Submitting transaction to blockchain...`
-      );
+      this.logger.info(`Submitting createLiquidityPosition transaction...`);
       const tx = await this.sapience.createLiquidityPosition(liquidityParams);
-      console.log(`📤 [LPManager] Transaction submitted! Hash: ${tx.hash}`);
+      this.logger.info(`Transaction submitted: ${tx.hash}`);
 
-      console.log(`⏳ [LPManager] Waiting for transaction confirmation...`);
+      this.logger.debug(`Waiting for transaction confirmation...`);
       const receipt = await tx.wait();
-      console.log(
-        `✅ [LPManager] Transaction confirmed! Block: ${receipt.blockNumber}, Gas used: ${receipt.gasUsed.toString()}`
+      this.logger.info(
+        `Transaction confirmed: block=${receipt.blockNumber}, gasUsed=${receipt.gasUsed.toString()}`
       );
 
       // Extract token ID from receipt
-      console.log(
-        `🔍 [LPManager] Extracting NFT token ID from transaction receipt...`
-      );
+      this.logger.debug(`Extracting NFT token ID from transaction receipt...`);
       const tokenId = this.extractTokenIdFromReceipt(receipt);
-      console.log(`🎯 [LPManager] Extracted token ID: ${tokenId}`);
+      this.logger.info(`Extracted token ID: ${tokenId}`);
 
       const position: LPPosition = {
         id: `position-${tokenId}`,
@@ -319,28 +267,17 @@ export class LPManager extends EventEmitter {
         isActive: true,
       };
 
-      console.log(`🎉 [LPManager] Position object created:`);
-      console.log(`   • ID: ${position.id}`);
-      console.log(`   • MarketId: ${position.marketId}`);
-      console.log(`   • TokenId: ${position.tokenId}`);
-      console.log(
-        `   • Tick Range: ${position.lowerTick} to ${position.upperTick}`
+      this.logger.debug(
+        `Position created: id=${position.id}, tokenId=${position.tokenId}, range=${position.lowerTick}-${position.upperTick}, liquidity=${position.liquidity}`
       );
-      console.log(`   • Liquidity: ${position.liquidity}`);
-      console.log(`   • Target Price: ${position.targetPrice}`);
-      console.log(
-        `   • Created: ${new Date(position.createdAt).toISOString()}`
-      );
-      console.log(`   • Active: ${position.isActive}`);
 
       this.emit('positionCreated', position);
-      console.log(`📡 [LPManager] 'positionCreated' event emitted`);
-      console.log(`🎯 [LPManager] ===== LP POSITION CREATION COMPLETE =====`);
+      this.logger.info(`LP position creation complete`);
 
       return position;
     } catch (error) {
-      console.error(
-        `💥 [LPManager] Error creating LP position for market ${marketId}:`,
+      this.logger.error(
+        `Error creating LP position for market ${marketId}:`,
         error
       );
       throw error;
@@ -359,7 +296,7 @@ export class LPManager extends EventEmitter {
 
   async closeLPPosition(position: LPPosition): Promise<void> {
     try {
-      console.log(
+      this.logger.info(
         `Closing LP position ${position.id} (token ID: ${position.tokenId})`
       );
 
@@ -386,7 +323,7 @@ export class LPManager extends EventEmitter {
       const kindNum =
         typeof kind === 'bigint' ? Number(kind) : (kind as number);
       if (kindNum !== 1 || isSettled) {
-        console.log(
+        this.logger.info(
           `Position ${position.tokenId} is not an active LP position (kind: ${kindNum}, settled: ${isSettled})`
         );
         return;
@@ -408,48 +345,46 @@ export class LPManager extends EventEmitter {
       position.lastUpdated = Date.now();
 
       this.emit('positionClosed', position);
-      console.log(`LP position ${position.id} closed successfully`);
+      this.logger.info(`LP position ${position.id} closed successfully`);
     } catch (error) {
-      console.error('Error closing LP position:', error);
+      this.logger.error('Error closing LP position:', error);
       throw error;
     }
   }
 
   async getCurrentLPPosition(marketId: bigint): Promise<LPPosition | null> {
     try {
-      console.log(
-        `🔍 [LPManager] Checking for existing LP position in market ${marketId}...`
+      this.logger.debug(
+        `Checking for existing LP position in market ${marketId}...`
       );
-      console.log(`👤 [LPManager] Wallet address: ${this.wallet.address}`);
+      this.logger.debug(`Wallet address: ${this.wallet.address}`);
 
       // Check balance of positions for this wallet
-      console.log(`📞 [LPManager] Calling balanceOf(${this.wallet.address})`);
+      this.logger.debug(`Calling balanceOf(${this.wallet.address})`);
       const positionCount = await this.sapience.balanceOf(this.wallet.address);
 
-      console.log(
-        `📊 [LPManager] Total positions owned by wallet: ${positionCount.toString()}`
+      this.logger.debug(
+        `Total positions owned by wallet: ${positionCount.toString()}`
       );
 
       if (positionCount === 0n) {
-        console.log(`❌ [LPManager] No positions found for this wallet`);
+        this.logger.debug(`No positions found for this wallet`);
         return null;
       }
 
-      console.log(
-        `🔍 [LPManager] Iterating through ${Number(positionCount)} positions...`
+      this.logger.debug(
+        `Iterating through ${Number(positionCount)} positions...`
       );
 
       // Iterate through positions to find active LP position for this market
       for (let i = 0; i < Number(positionCount); i++) {
-        console.log(`📍 [LPManager] Checking position index ${i}...`);
+        this.logger.debug(`Checking position index ${i}...`);
 
         const tokenId = await this.sapience.tokenOfOwnerByIndex(
           this.wallet.address,
           i
         );
-        console.log(
-          `🎯 [LPManager] Token ID at index ${i}: ${tokenId.toString()}`
-        );
+        this.logger.debug(`Token ID at index ${i}: ${tokenId.toString()}`);
 
         const positionData = await this.sapience.getPosition(tokenId);
         const [
@@ -465,26 +400,26 @@ export class LPManager extends EventEmitter {
           isSettled,
         ] = positionData;
 
-        console.log(`📋 [LPManager] Position ${tokenId.toString()} details:`);
-        console.log(`   • ID: ${id.toString()}`);
+        this.logger.debug(`Position ${tokenId.toString()} details:`);
+        this.logger.debug(`ID: ${id.toString()}`);
         const kindNum =
           typeof kind === 'bigint' ? Number(kind) : (kind as number);
-        console.log(`   • Kind: ${kindNum} (1=LP, 2=Trader)`);
+        this.logger.debug(`Kind: ${kindNum} (1=LP, 2=Trader)`);
         const positionMarketIdStr = positionMarketId.toString();
         const targetMarketIdStr = marketId.toString();
         const sameMarket = positionMarketIdStr === targetMarketIdStr;
-        console.log(`   • Market ID: ${positionMarketIdStr}`);
-        console.log(`   • Target Market ID: ${targetMarketIdStr}`);
-        console.log(
-          `   • Deposited Collateral: ${depositedCollateralAmount.toString()}`
+        this.logger.debug(`Market ID: ${positionMarketIdStr}`);
+        this.logger.debug(`Target Market ID: ${targetMarketIdStr}`);
+        this.logger.debug(
+          `Deposited Collateral: ${depositedCollateralAmount.toString()}`
         );
-        console.log(`   • Is Settled: ${isSettled}`);
-        console.log(`   • vQuote Amount: ${vQuoteAmount.toString()}`);
-        console.log(`   • vBase Amount: ${vBaseAmount.toString()}`);
+        this.logger.debug(`Is Settled: ${isSettled}`);
+        this.logger.debug(`vQuote Amount: ${vQuoteAmount.toString()}`);
+        this.logger.debug(`vBase Amount: ${vBaseAmount.toString()}`);
 
         // Check if this is an active LP position for the specified market
         if (kindNum === 1 && !isSettled && sameMarket) {
-          console.log(`✅ [LPManager] Found matching active LP position!`);
+          this.logger.info(`Found matching active LP position`);
 
           // This is our active LP position for this market
           const position: LPPosition = {
@@ -500,34 +435,30 @@ export class LPManager extends EventEmitter {
             isActive: true,
           };
 
-          console.log(`🎉 [LPManager] Returning existing position:`);
-          console.log(`   • Position ID: ${position.id}`);
-          console.log(`   • Token ID: ${position.tokenId}`);
-          console.log(`   • Market ID: ${position.marketId}`);
-          console.log(`   • Liquidity: ${position.liquidity}`);
+          this.logger.debug(
+            `Returning existing position id=${position.id}, tokenId=${position.tokenId}, marketId=${position.marketId}, liquidity=${position.liquidity}`
+          );
 
           return position;
         } else {
-          console.log(
-            `⏭️  [LPManager] Position ${tokenId.toString()} doesn't match criteria:`
+          this.logger.debug(
+            `Position ${tokenId.toString()} doesn't match criteria:`
           );
           if (kindNum !== 1)
-            console.log(`     - Wrong kind: ${kindNum} (expected 1 for LP)`);
-          if (isSettled) console.log(`     - Position is settled`);
+            this.logger.debug(`- Wrong kind: ${kindNum} (expected 1 for LP)`);
+          if (isSettled) this.logger.debug(`- Position is settled`);
           if (!sameMarket)
-            console.log(
-              `     - Wrong market: ${positionMarketIdStr} (expected ${targetMarketIdStr})`
+            this.logger.debug(
+              `- Wrong market: ${positionMarketIdStr} (expected ${targetMarketIdStr})`
             );
         }
       }
 
-      console.log(
-        `❌ [LPManager] No active LP position found for market ${marketId}`
-      );
+      this.logger.info(`No active LP position found for market ${marketId}`);
       return null;
     } catch (error) {
-      console.error(
-        `💥 [LPManager] Error getting current LP position for market ${marketId}:`,
+      this.logger.error(
+        `Error getting current LP position for market ${marketId}:`,
         error
       );
       throw error;
@@ -541,7 +472,7 @@ export class LPManager extends EventEmitter {
     newTargetPrice: number,
     collateralAmount: string
   ): Promise<LPPosition> {
-    console.log(`Adjusting LP position ${oldPosition.id}`);
+    this.logger.info(`Adjusting LP position ${oldPosition.id}`);
 
     // Close old position
     await this.closeLPPosition(oldPosition);
@@ -584,12 +515,10 @@ export class LPManager extends EventEmitter {
     collateralAmount: string,
     collateralAddress: string
   ): Promise<void> {
-    console.log(
-      `🔍 [LPManager] Checking collateral approval for ${collateralAddress}`
-    );
+    this.logger.debug(`Checking collateral approval for ${collateralAddress}`);
     const tokenSymbol = await this.getCollateralTokenSymbol(collateralAddress);
-    console.log(
-      `💰 [LPManager] Required amount: ${collateralAmount} wei (${this.weiToEth(collateralAmount)} ${tokenSymbol})`
+    this.logger.debug(
+      `Required amount: ${collateralAmount} wei (${this.weiToEth(collateralAmount)} ${tokenSymbol})`
     );
 
     const collateralContract = new ethers.Contract(
@@ -607,34 +536,28 @@ export class LPManager extends EventEmitter {
       this.wallet.address,
       spender
     );
-    console.log(
-      `📊 [LPManager] Current allowance: ${currentAllowance.toString()} wei`
-    );
+    this.logger.debug(`Current allowance: ${currentAllowance.toString()} wei`);
 
     if (currentAllowance < requiredAmount) {
-      console.log(
-        `🔓 [LPManager] Insufficient allowance, approving collateral token...`
-      );
-      console.log(`📞 [LPManager] Calling approve(${spender}, MaxUint256)`);
+      this.logger.info(`Approving collateral token...`);
+      this.logger.debug(`Calling approve(${spender}, MaxUint256)`);
 
       const approveTx = await collateralContract.approve(
         spender,
         ethers.MaxUint256
       );
-      console.log(
-        `📤 [LPManager] Approval transaction submitted: ${approveTx.hash}`
-      );
+      this.logger.info(`Approval transaction submitted: ${approveTx.hash}`);
       await approveTx.wait();
-      console.log(`✅ [LPManager] Collateral approval confirmed`);
+      this.logger.info(`Collateral approval confirmed`);
     } else {
-      console.log(`✅ [LPManager] Sufficient allowance already exists`);
+      this.logger.debug(`Sufficient allowance already exists`);
     }
   }
 
   private extractTokenIdFromReceipt(
     receipt: ethers.TransactionReceipt
   ): number {
-    console.log('Extracting token ID from transaction receipt');
+    this.logger.debug('Extracting token ID from transaction receipt');
 
     // Look for Transfer event from ERC721 (NFT creation)
     // The Sapience contract inherits NFT functionality for position tracking

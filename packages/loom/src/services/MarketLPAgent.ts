@@ -1,6 +1,7 @@
 import {
   createConfig,
   createGraphQLService,
+  createLogger,
   createOpenAIService,
   MARKETS_QUERY,
   MarketsQueryResult,
@@ -14,13 +15,14 @@ export class MarketLPAgent {
   constructor(private loomConfig: LoomConfig) {}
 
   async runOnce(): Promise<void> {
+    const logger = createLogger('Loom');
     const sharedConfig = createConfig();
     const gql = createGraphQLService(sharedConfig);
     const openai = createOpenAIService(sharedConfig);
 
     const model = new PriceModel();
 
-    console.log('🔎 Fetching active markets from Sapience API...');
+    logger.info('Fetching active markets from Sapience API...');
     const where: any = { settled: { equals: false } };
     if (this.lastRunCutoff) {
       where.createdAt = { gt: this.lastRunCutoff };
@@ -30,13 +32,15 @@ export class MarketLPAgent {
       MARKETS_QUERY,
       variables
     );
-    console.log(`📊 Active markets: ${markets.length}`);
+    logger.info(`Active markets: ${markets.length}`);
+
+    let createdCount = 0;
 
     for (const m of markets) {
       const sapienceAddress = m.marketGroup?.address;
       if (!sapienceAddress) {
-        console.log(
-          `⚠️  Market ${m.marketId} missing marketGroup.address, skipping.`
+        logger.warn(
+          `Market ${m.marketId} missing marketGroup.address, skipping.`
         );
         continue;
       }
@@ -52,8 +56,8 @@ export class MarketLPAgent {
             : Number(m.endTimestamp);
         const nowSec = Math.floor(Date.now() / 1000);
         if (Number.isFinite(endSec) && nowSec > endSec) {
-          console.log(
-            `⏰ Market ${m.marketId} expired at ${new Date(endSec * 1000).toISOString()}, skipping.`
+          logger.info(
+            `Market ${m.marketId} expired at ${new Date(endSec * 1000).toISOString()}, skipping.`
           );
           continue;
         }
@@ -61,8 +65,8 @@ export class MarketLPAgent {
 
       const existing = await lpManager.getCurrentLPPosition(marketIdBig);
       if (existing) {
-        console.log(
-          `⏭️  Market ${m.marketId}: position exists (${existing.id}), skipping.`
+        logger.debug(
+          `Market ${m.marketId}: position exists (${existing.id}), skipping.`
         );
         continue;
       }
@@ -70,9 +74,7 @@ export class MarketLPAgent {
       // Stop when collateral is insufficient
       const collateralAddress = m.marketGroup?.collateralAsset;
       if (!collateralAddress) {
-        console.log(
-          `⚠️  Market ${m.marketId}: missing collateralAsset, skipping.`
-        );
+        logger.warn(`Market ${m.marketId}: missing collateralAsset, skipping.`);
         continue;
       }
       const required = BigInt(
@@ -81,33 +83,30 @@ export class MarketLPAgent {
       try {
         const balance = await lpManager.getCollateralBalance(collateralAddress);
         if (balance < required) {
-          console.log(
-            `💸 Insufficient collateral (${balance.toString()} wei) for required ${required.toString()} wei. Stopping further creations this run.`
+          logger.info(
+            `Insufficient collateral (${balance.toString()} wei) for required ${required.toString()} wei. Stopping further creations this run.`
           );
           break;
         }
       } catch (e) {
-        console.log(
-          `⚠️  Could not fetch collateral balance, attempting anyway...`
-        );
+        logger.warn(`Could not fetch collateral balance, attempting anyway...`);
       }
 
       const question = m.marketGroup?.question || '';
       const claimYes = m.claimStatementYesOrNumeric || undefined;
       const claimNo = m.claimStatementNo || undefined;
 
-      console.log(
-        `🧠 Asking OpenAI for probability on market ${m.marketId}...`
-      );
+      logger.debug(`Asking OpenAI for probability on market ${m.marketId}...`);
       const prediction = await openai.predictMarket({
         question,
         claimYes,
         claimNo,
       });
       const likelihood = prediction.probabilityYes; // 0..1
-      console.log(
-        `🎯 OpenAI probabilityYes=${(likelihood * 100).toFixed(2)}% | ${prediction.reasoning || ''}`
+      logger.info(
+        `Market ${m.marketId}: probabilityYes=${(likelihood * 100).toFixed(2)}%`
       );
+      logger.debug(`Reasoning: ${prediction.reasoning || ''}`);
 
       const marketData = await lpManager.getMarketData(marketIdBig);
       const targetPrice = model.likelihoodToPrice(likelihood);
@@ -127,12 +126,12 @@ export class MarketLPAgent {
           : marketData.baseAssetMaxPriceTick
       );
 
-      console.log(
-        `📐 Market ${m.marketId}: ticks ${lowerTick}..${upperTick} around target ${targetPrice}`
+      logger.debug(
+        `Market ${m.marketId}: ticks ${lowerTick}..${upperTick} around target ${targetPrice}`
       );
 
       if (process.env.DRY_RUN === 'true') {
-        console.log('🧪 DRY RUN enabled: skipping createLPPosition call.');
+        logger.info('DRY RUN enabled: skipping createLPPosition call.');
         continue;
       }
 
@@ -143,12 +142,16 @@ export class MarketLPAgent {
         targetPrice,
         this.loomConfig.lpManagement.defaultCollateralAmount
       );
-      console.log(
-        `✅ Created LP position ${position.id} for market ${m.marketId}`
+      createdCount += 1;
+      logger.info(
+        `Created LP position ${position.id} for market ${m.marketId}`
       );
     }
 
     // After the run, record cutoff for subsequent runs
     this.lastRunCutoff = new Date().toISOString();
+    logger.info(
+      `Run complete. Markets scanned=${markets.length}, positions created=${createdCount}`
+    );
   }
 }
