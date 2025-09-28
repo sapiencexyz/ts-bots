@@ -53,6 +53,7 @@ export const MARKETS_QUERY = /* GraphQL */ `
         question
         address
       }
+      createdAt
       endTimestamp
       marketId
       marketGroupId
@@ -66,6 +67,7 @@ export type MarketsQueryResult = {
   markets: Array<{
     marketId: string;
     marketGroupId: string;
+    createdAt?: string | null;
     endTimestamp?: string | number | null;
     claimStatementYesOrNumeric?: string | null;
     claimStatementNo?: string | null;

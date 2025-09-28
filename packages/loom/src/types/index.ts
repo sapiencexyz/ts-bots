@@ -4,66 +4,15 @@ export interface LoomConfig {
     privateKey: string;
     chainId: number;
   };
-  // Sapience contract address is now provided per-market via GraphQL
-  easMonitoring: {
-    contractAddress: string;
-    schemaId: string;
-    targetAddresses: string[];
-    pollingInterval: number;
-    startFromDaysAgo: number;
-  };
   lpManagement: {
     concentrationRange: number;
     deviationThreshold: number;
     defaultCollateralAmount: string;
-    // Note: tickSpacing (200) and slippageTolerance (0) are fixed for Foil protocol
   };
   riskManagement: {
-    maxPositions: number;
     cooldownPeriod: number;
     emergencyStopThreshold: number;
   };
-}
-
-export interface EASAttestation {
-  id: string;
-  attester: string;
-  recipient: string;
-  refUID: string;
-  revocationTime: number;
-  expirationTime: number;
-  time: number;
-  txid: string;
-  schemaId: string;
-  data: string;
-  marketAddress?: string;
-  marketId?: string;
-  questionId?: string;
-  prediction?: string;
-  comment?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface AttestationEvent {
-  id: string;
-  address: string;
-  timestamp: number;
-  blockNumber: number;
-  transactionHash: string;
-  data: EASAttestation;
-}
-
-export interface ParsedAttestation {
-  eventId: string;
-  attester: string;
-  marketAddress: string;
-  marketId: string;
-  likelihood: number;
-  confidence: number;
-  reasoning: string;
-  timestamp: number;
-  rawData: EASAttestation;
 }
 
 export interface LPPosition {
@@ -103,12 +52,4 @@ export interface MarketData {
   claimStatementNo: string;
   currentSqrtPriceX96: bigint;
   collateralAddress: string;
-}
-
-export enum LoomEventType {
-  ATTESTATION_RECEIVED = 'attestation_received',
-  POSITION_CREATED = 'position_created',
-  POSITION_CLOSED = 'position_closed',
-  POSITION_ADJUSTED = 'position_adjusted',
-  ERROR = 'error',
 }
